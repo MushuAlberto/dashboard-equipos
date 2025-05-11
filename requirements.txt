@@ -1,0 +1,8 @@
+streamlit
+pandas
+plotly
+pillow
+fpdf
+openpyxl
+plotly.express
+kaleido
