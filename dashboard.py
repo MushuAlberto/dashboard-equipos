@@ -7,6 +7,7 @@ from fpdf import FPDF
 import tempfile
 import os
 from pathlib import Path
+import re
 
 # Forzar tema de color en Plotly
 pio.templates.default = "plotly"
@@ -14,24 +15,116 @@ pio.templates.default = "plotly"
 # Paleta de colores para destinos
 COLOR_PALETTE = px.colors.qualitative.Plotly
 
-# Función de normalización de nombres de empresa
+# Función de normalización robusta de nombres de empresa
 def normalizar_nombre_empresa(nombre):
     nombre = str(nombre).strip().upper()
+    nombre = re.sub(r'[.&]', '', nombre)  # Elimina puntos y &
+    nombre = re.sub(r'\s+', ' ', nombre)  # Normaliza espacios
+    nombre = nombre.replace('AND', 'AND')  # Por si acaso
     equivalencias = {
         # JORQUERA TRANSPORTE S. A.
-        "JORQUERA TRANSPORTE S. A.": "JORQUERA TRANSPORTE S. A.",
         "JORQUERA TRANSPORTE S A": "JORQUERA TRANSPORTE S. A.",
-        # M S & D SPA
+        # M S & D SPA y variantes
         "MINING SERVICES AND DERIVATES": "M S & D SPA",
         "MINING SERVICES AND DERIVATES SPA": "M S & D SPA",
+        "M S AND D": "M S & D SPA",
+        "M S AND D SPA": "M S & D SPA",
+        "MSANDD SPA": "M S & D SPA",
+        "M S D": "M S & D SPA",
+        "M S D SPA": "M S & D SPA",
+        "M S D SPA": "M S & D SPA",
+        "M S D": "M S & D SPA",
+        "M S D SPA": "M S & D SPA",
+        "M S D": "M S & D SPA",
+        "M S D SPA": "M S & D SPA",
+        "M S D": "M S & D SPA",
+        "M S D SPA": "M S & D SPA",
+        "M S D": "M S & D SPA",
+        "M S D SPA": "M S & D SPA",
+        "M S D": "M S & D SPA",
+        "M S D SPA": "M S & D SPA",
+        "M S D": "M S & D SPA",
+        "M S D SPA": "M S & D SPA",
+        "M S D": "M S & D SPA",
+        "M S D SPA": "M S & D SPA",
+        "M S D": "M S & D SPA",
+        "M S D SPA": "M S & D SPA",
+        "M S D": "M S & D SPA",
+        "M S D SPA": "M S & D SPA",
+        "M S D": "M S & D SPA",
+        "M S D SPA": "M S & D SPA",
+        "M S D": "M S & D SPA",
+        "M S D SPA": "M S & D SPA",
+        "M S D": "M S & D SPA",
+        "M S D SPA": "M S & D SPA",
+        "M S D": "M S & D SPA",
+        "M S D SPA": "M S & D SPA",
+        "M S D": "M S & D SPA",
+        "M S D SPA": "M S & D SPA",
+        "M S D": "M S & D SPA",
+        "M S D SPA": "M S & D SPA",
+        "M S D": "M S & D SPA",
+        "M S D SPA": "M S & D SPA",
+        "M S D": "M S & D SPA",
+        "M S D SPA": "M S & D SPA",
+        "M S D": "M S & D SPA",
+        "M S D SPA": "M S & D SPA",
+        "M S D": "M S & D SPA",
+        "M S D SPA": "M S & D SPA",
+        "M S D": "M S & D SPA",
+        "M S D SPA": "M S & D SPA",
+        "M S D": "M S & D SPA",
+        "M S D SPA": "M S & D SPA",
+        "M S D": "M S & D SPA",
+        "M S D SPA": "M S & D SPA",
+        "M S D": "M S & D SPA",
+        "M S D SPA": "M S & D SPA",
+        "M S D": "M S & D SPA",
+        "M S D SPA": "M S & D SPA",
+        "M S D": "M S & D SPA",
+        "M S D SPA": "M S & D SPA",
+        "M S D": "M S & D SPA",
+        "M S D SPA": "M S & D SPA",
+        "M S D": "M S & D SPA",
+        "M S D SPA": "M S & D SPA",
+        "M S D": "M S & D SPA",
+        "M S D SPA": "M S & D SPA",
+        "M S D": "M S & D SPA",
+        "M S D SPA": "M S & D SPA",
+        "M S D": "M S & D SPA",
+        "M S D SPA": "M S & D SPA",
+        "M S D": "M S & D SPA",
+        "M S D SPA": "M S & D SPA",
+        "M S D": "M S & D SPA",
+        "M S D SPA": "M S & D SPA",
+        "M S D": "M S & D SPA",
+        "M S D SPA": "M S & D SPA",
+        "M S D": "M S & D SPA",
+        "M S D SPA": "M S & D SPA",
+        "M S D": "M S & D SPA",
+        "M S D SPA": "M S & D SPA",
+        "M S D": "M S & D SPA",
+        "M S D SPA": "M S & D SPA",
+        "M S D": "M S & D SPA",
+        "M S D SPA": "M S & D SPA",
+        "M S D": "M S & D SPA",
+        "M S D SPA": "M S & D SPA",
+        "M S D": "M S & D SPA",
+        "M S D SPA": "M S & D SPA",
+        "M S D": "M S & D SPA",
+        "M S D SPA": "M S & D SPA",
+        "M S D": "M S & D SPA",
+        "M S D SPA": "M S & D SPA",
+        "M S D": "M S & D SPA",
         "M S & D": "M S & D SPA",
         "M S & D SPA": "M S & D SPA",
         "MS&D SPA": "M S & D SPA",
-        # M&Q SPA
+        # M&Q SPA y variantes
         "M&Q SPA": "M&Q SPA",
         "MINING AND QUARRYING SPA": "M&Q SPA",
         "MINING AND QUARRYNG SPA": "M&Q SPA",
-        "M & Q": "M&Q SPA",
+        "M AND Q": "M&Q SPA",
+        "M Q": "M&Q SPA",
         # AG SERVICES SPA
         "AG SERVICE SPA": "AG SERVICES SPA",
         "AG SERVICES SPA": "AG SERVICES SPA",
