@@ -11,18 +11,38 @@ from pathlib import Path
 # Forzar tema de color en Plotly
 pio.templates.default = "plotly"
 
-# Paleta de colores para destinos (puedes personalizarla)
+# Paleta de colores para destinos
 COLOR_PALETTE = px.colors.qualitative.Plotly
+
+# Función de normalización de nombres de empresa
+def normalizar_nombre_empresa(nombre):
+    nombre = str(nombre).strip().upper()
+    equivalencias = {
+        # JORQUERA TRANSPORTE S. A.
+        "JORQUERA TRANSPORTE S. A.": "JORQUERA TRANSPORTE S. A.",
+        "JORQUERA TRANSPORTE S A": "JORQUERA TRANSPORTE S. A.",
+        # M S & D SPA
+        "MINING SERVICES AND DERIVATES": "M S & D SPA",
+        "MINING SERVICES AND DERIVATES SPA": "M S & D SPA",
+        "M S & D": "M S & D SPA",
+        "M S & D SPA": "M S & D SPA",
+        "MS&D SPA": "M S & D SPA",
+        # M&Q SPA
+        "M&Q SPA": "M&Q SPA",
+        "MINING AND QUARRYING SPA": "M&Q SPA",
+        "MINING AND QUARRYNG SPA": "M&Q SPA",
+        "M & Q": "M&Q SPA",
+        # AG SERVICES SPA
+        "AG SERVICE SPA": "AG SERVICES SPA",
+        "AG SERVICES SPA": "AG SERVICES SPA",
+        # COSEDUCAM S A
+        "COSEDUCAM S A": "COSEDUCAM S A",
+        "COSEDUCAM": "COSEDUCAM S A"
+    }
+    return equivalencias.get(nombre, nombre)
 
 # Configuración de la página
 st.set_page_config(page_title="Dashboard Equipos por Hora", layout="wide")
-
-def normalizar_nombre_empresa(nombre):
-    equivalencias = {
-        "AG SERVICE SPA": "AG SERVICES SPA",
-        "AG SERVICES SPA": "AG SERVICES SPA",
-    }
-    return equivalencias.get(nombre, nombre)
 
 CURRENT_DIR = Path(__file__).parent
 LOGOS = {
@@ -67,6 +87,7 @@ if uploaded_file:
             st.error(f"Error al procesar fechas u horas: {str(e)}")
             st.stop()
 
+        # Normalizar nombres de empresa
         df[empresa_col] = df[empresa_col].apply(normalizar_nombre_empresa)
 
         fechas_disponibles = df[fecha_col].dropna().dt.date.unique()
@@ -132,7 +153,6 @@ if uploaded_file:
                 resumen = df_empresa.groupby([hora_col, destino_col]).size().reset_index(name='Cantidad')
 
                 if not resumen.empty:
-                    # Asignar colores a cada destino
                     destinos_unicos = resumen[destino_col].unique()
                     color_map = {dest: COLOR_PALETTE[i % len(COLOR_PALETTE)] for i, dest in enumerate(destinos_unicos)}
                     fig = px.line(
@@ -177,7 +197,6 @@ if uploaded_file:
             if st.button(f"Generar y descargar PDF para {empresa}"):
                 try:
                     with tempfile.TemporaryDirectory() as tmpdir:
-                        # Asignar colores a cada destino para el gráfico del PDF
                         destinos_unicos = resumen[destino_col].unique()
                         color_map = {dest: COLOR_PALETTE[i % len(COLOR_PALETTE)] for i, dest in enumerate(destinos_unicos)}
                         fig2 = px.line(
