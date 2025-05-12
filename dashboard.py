@@ -39,6 +39,7 @@ def normalizar_nombre_empresa(nombre):
         "M Q SPA": "M&Q SPA",
         "MQ SPA": "M&Q SPA",
         "M&Q SPA": "M&Q SPA",
+        "MANDQ SPA": "M&Q SPA",
         "MINING AND QUARRYING SPA": "M&Q SPA",
         "MINING AND QUARRYNG SPA": "M&Q SPA",
         # AG SERVICES SPA
