@@ -332,54 +332,57 @@ if uploaded_file:
 
     # --- IMAGEN GLOBAL SOLO GRAFICOS ---
     st.markdown("## Descargar imagen con todos los gráficos de las empresas seleccionadas")
-    if st.button("Descargar imagen de todos los gráficos"):
-        try:
-            with tempfile.TemporaryDirectory() as tmpdir:
-                graficos_paths = []
-                for data in empresas_graficos:
-                    empresa = data["empresa"]
-                    fig = data["fig"]
-                    grafico_path = os.path.join(tmpdir, f"grafico_{empresa}.png")
-                    fig.write_image(grafico_path, width=900, height=400, scale=2)
-                    graficos_paths.append((empresa, grafico_path))
+    if len(empresas_graficos) == 0:
+        st.info("No hay gráficos generados para descargar. Asegúrate de seleccionar empresas y que existan datos para graficar.")
+    else:
+        if st.button("Descargar imagen de todos los gráficos"):
+            try:
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    graficos_paths = []
+                    for data in empresas_graficos:
+                        empresa = data["empresa"]
+                        fig = data["fig"]
+                        grafico_path = os.path.join(tmpdir, f"grafico_{empresa}.png")
+                        fig.write_image(grafico_path, width=900, height=400, scale=2)
+                        graficos_paths.append((empresa, grafico_path))
 
-                # Abrir y apilar imágenes
-                imagenes = []
-                for empresa, path in graficos_paths:
-                    img = Image.open(path)
-                    # Opcional: agregar título arriba de cada gráfico
-                    titulo = Image.new('RGB', (img.width, 40), (255,255,255))
-                    from PIL import ImageDraw, ImageFont
-                    draw = ImageDraw.Draw(titulo)
-                    try:
-                        font = ImageFont.truetype("arial.ttf", 24)
-                    except:
-                        font = ImageFont.load_default()
-                    draw.text((10, 5), f"Empresa: {empresa}", fill=(0,0,0), font=font)
-                    imagenes.append(titulo)
-                    imagenes.append(img)
+                    # Abrir y apilar imágenes
+                    imagenes = []
+                    for empresa, path in graficos_paths:
+                        img = Image.open(path)
+                        # Opcional: agregar título arriba de cada gráfico
+                        titulo = Image.new('RGB', (img.width, 40), (255,255,255))
+                        from PIL import ImageDraw, ImageFont
+                        draw = ImageDraw.Draw(titulo)
+                        try:
+                            font = ImageFont.truetype("arial.ttf", 24)
+                        except:
+                            font = ImageFont.load_default()
+                        draw.text((10, 5), f"Empresa: {empresa}", fill=(0,0,0), font=font)
+                        imagenes.append(titulo)
+                        imagenes.append(img)
 
-                # Apilar verticalmente
-                ancho = max(im.width for im in imagenes)
-                alto = sum(im.height for im in imagenes)
-                imagen_final = Image.new('RGB', (ancho, alto), (255,255,255))
-                y_offset = 0
-                for im in imagenes:
-                    imagen_final.paste(im, (0, y_offset))
-                    y_offset += im.height
+                    # Apilar verticalmente
+                    ancho = max(im.width for im in imagenes)
+                    alto = sum(im.height for im in imagenes)
+                    imagen_final = Image.new('RGB', (ancho, alto), (255,255,255))
+                    y_offset = 0
+                    for im in imagenes:
+                        imagen_final.paste(im, (0, y_offset))
+                        y_offset += im.height
 
-                final_path = os.path.join(tmpdir, "todos_los_graficos.png")
-                imagen_final.save(final_path)
+                    final_path = os.path.join(tmpdir, "todos_los_graficos.png")
+                    imagen_final.save(final_path)
 
-                with open(final_path, "rb") as f:
-                    st.download_button(
-                        label="Descargar imagen de todos los gráficos",
-                        data=f,
-                        file_name="todos_los_graficos.png",
-                        mime="image/png"
-                    )
-        except Exception as e:
-            st.error(f"Error al generar la imagen global: {str(e)}")
+                    with open(final_path, "rb") as f:
+                        st.download_button(
+                            label="Descargar imagen de todos los gráficos",
+                            data=f,
+                            file_name="todos_los_graficos.png",
+                            mime="image/png"
+                        )
+            except Exception as e:
+                st.error(f"Error al generar la imagen global: {str(e)}")
 
 else:
     st.info("Carga un archivo Excel para ver el dashboard.")
