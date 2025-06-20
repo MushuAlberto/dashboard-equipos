@@ -1,8 +1,7 @@
 streamlit
 pandas
 plotly
-pillow
-fpdf
+Pillow
+fpdf2
 openpyxl
-plotly.express
-kaleido
+kaleido==0.1.0.post1 
