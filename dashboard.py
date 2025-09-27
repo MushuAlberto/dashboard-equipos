@@ -28,6 +28,7 @@ def normalizar_nombre_empresa(nombre):
         "M S AND D": "M S & D SPA",
         "M S AND D SPA": "M S & D SPA",
         "MSANDD SPA": "M S & D SPA",
+        "MSANDD": "M S & D SPA",  # <-- NUEVO
         "M S D": "M S & D SPA",
         "M S D SPA": "M S & D SPA",
         "M S & D": "M S & D SPA",
@@ -40,6 +41,7 @@ def normalizar_nombre_empresa(nombre):
         "MQ SPA": "M&Q SPA",
         "M&Q SPA": "M&Q SPA",
         "MANDQ SPA": "M&Q SPA",
+        "MANDQ": "M&Q SPA",  # <-- NUEVO
         "MINING AND QUARRYING SPA": "M&Q SPA",
         "MINING AND QUARRYNG SPA": "M&Q SPA",
         # AG SERVICES SPA
@@ -204,9 +206,17 @@ if uploaded_file:
             st.markdown("---")
             st.subheader(f"Descargar PDF para {empresa}")
 
-            if st.button(f"Generar y descargar PDF para {empresa}"):
+            # ✅ Botón con key único para evitar conflictos en Streamlit
+            if st.button(f"Generar y descargar PDF para {empresa}", key=f"pdf_btn_{empresa}"):
                 try:
                     with tempfile.TemporaryDirectory() as tmpdir:
+                        df_empresa = df[df[empresa_col] == empresa_normalizada]
+                        resumen = df_empresa.groupby([hora_col, destino_col]).size().reset_index(name='Cantidad')
+
+                        if resumen.empty:
+                            st.warning("No hay datos para generar el PDF.")
+                            continue
+
                         destinos_unicos = resumen[destino_col].unique()
                         color_map = {dest: COLOR_PALETTE[i % len(COLOR_PALETTE)] for i, dest in enumerate(destinos_unicos)}
                         fig2 = px.line(
@@ -230,35 +240,39 @@ if uploaded_file:
                         fig2.write_image(grafico_path, width=900, height=400, scale=2)
 
                         images_to_stack = []
-                        opened_imgs = []
 
+                        # Banner
                         if os.path.exists(BANNER_PATH):
-                            banner_img = Image.open(BANNER_PATH)
-                            images_to_stack.append(banner_img)
-                            opened_imgs.append(banner_img)
+                            with Image.open(BANNER_PATH) as banner_img:
+                                banner_rgb = banner_img.convert("RGB")
+                                images_to_stack.append(banner_rgb)
 
-                        logo_path = LOGOS.get(empresa_normalizada)
-                        if logo_path and os.path.exists(logo_path):
-                            logo_img = Image.open(logo_path)
-                            logo_width = 120
-                            wpercent = (logo_width / float(logo_img.size[0]))
-                            hsize = int((float(logo_img.size[1]) * float(wpercent)))
-                            logo_img = logo_img.resize((logo_width, hsize), Image.LANCZOS)
-                            grafico_img = Image.open(grafico_path)
-                            logo_bg = Image.new('RGBA', (grafico_img.width, logo_img.height), (255,255,255,0))
-                            logo_bg.paste(
-                                logo_img,
-                                ((grafico_img.width - logo_width)//2, 0),
-                                logo_img if logo_img.mode=='RGBA' else None
-                            )
-                            images_to_stack.append(logo_bg.convert('RGB'))
-                            opened_imgs.extend([logo_img, grafico_img])
-                        else:
-                            grafico_img = Image.open(grafico_path)
-                            opened_imgs.append(grafico_img)
+                        # Gráfico
+                        with Image.open(grafico_path) as grafico_img:
+                            grafico_rgb = grafico_img.convert("RGB")
 
-                        images_to_stack.append(grafico_img)
+                            # Logo (opcional)
+                            logo_path = LOGOS.get(empresa_normalizada)
+                            if logo_path and os.path.exists(logo_path):
+                                with Image.open(logo_path) as logo_img:
+                                    logo_rgb = logo_img.convert("RGBA")
+                                    logo_width = 120
+                                    wpercent = (logo_width / float(logo_rgb.size[0]))
+                                    hsize = int((float(logo_rgb.size[1]) * float(wpercent)))
+                                    logo_resized = logo_rgb.resize((logo_width, hsize), Image.LANCZOS)
 
+                                    # Crear fondo blanco para el logo
+                                    logo_bg = Image.new('RGB', (grafico_rgb.width, logo_resized.height), (255, 255, 255))
+                                    logo_bg.paste(
+                                        logo_resized,
+                                        ((grafico_rgb.width - logo_width) // 2, 0),
+                                        logo_resized if logo_resized.mode == 'RGBA' else None
+                                    )
+                                    images_to_stack.append(logo_bg)
+
+                            images_to_stack.append(grafico_rgb)
+
+                        # Redimensionar todas las imágenes al ancho del gráfico
                         base_width = images_to_stack[-1].width
                         resized_imgs = []
                         for img in images_to_stack:
@@ -268,9 +282,9 @@ if uploaded_file:
                                 img = img.resize((base_width, hsize), Image.LANCZOS)
                             resized_imgs.append(img)
 
+                        # Combinar verticalmente
                         total_height = sum(img.height for img in resized_imgs)
                         combined_img = Image.new('RGB', (base_width, total_height), (255, 255, 255))
-
                         y_offset = 0
                         for img in resized_imgs:
                             combined_img.paste(img, (0, y_offset))
@@ -279,10 +293,7 @@ if uploaded_file:
                         combined_path = os.path.join(tmpdir, f"combinado_{empresa}.png")
                         combined_img.save(combined_path)
 
-                        for img in opened_imgs:
-                            img.close()
-                        combined_img.close()
-
+                        # Generar PDF
                         pdf = FPDF(orientation='L', unit='mm', format='A4')
                         pdf.add_page()
                         pdf.set_font("Arial", "B", 16)
@@ -290,24 +301,47 @@ if uploaded_file:
                         pdf.ln(5)
                         pdf.image(combined_path, x=10, y=20, w=270)
 
+                        # Segunda página: tabla
                         pdf.add_page(orientation='P')
                         pdf.set_font("Arial", "B", 12)
                         pdf.cell(0, 10, "Tabla de equipos por hora y destino", ln=1, align="C")
                         pdf.set_font("Arial", "", 8)
-                        col_width = max(20, int(180 / (len(tabla_final.columns)+1)))
+
+                        # Preparar tabla
+                        df_empresa['Hora Intervalo'] = df_empresa[hora_col].apply(
+                            lambda h: f"{str(int(h)).zfill(2)}:00 - {str(int(h)).zfill(2)}:59"
+                        )
+                        tabla = pd.pivot_table(
+                            df_empresa,
+                            index='Hora Intervalo',
+                            columns=destino_col,
+                            values=empresa_col,
+                            aggfunc='count',
+                            fill_value=0
+                        )
+                        tabla = tabla.reindex(horas_labels, fill_value=0)
+                        sumatoria = pd.DataFrame(tabla.sum(axis=0)).T
+                        sumatoria.index = ['TOTAL']
+                        tabla_final = pd.concat([tabla, sumatoria])
+
                         tabla_reset = tabla_final.reset_index()
                         hora_col_name = tabla_reset.columns[0]
+
+                        col_width = max(20, int(180 / (len(tabla_final.columns) + 1)))
+                        # Encabezados
                         pdf.cell(col_width, 8, "Hora", border=1, align="C")
                         for col in tabla_final.columns:
-                            pdf.cell(col_width, 8, str(col), border=1, align="C")
+                            pdf.cell(col_width, 8, str(col)[:30], border=1, align="C")  # Truncar si es muy largo
                         pdf.ln()
+                        # Filas
                         for idx, row in tabla_reset.iterrows():
                             hora_label = row[hora_col_name]
-                            if pd.isnull(hora_label):
-                                hora_label = "TOTAL"
+                            if pd.isnull(hora_label) or hora_label == "TOTAL":
+                                pass
                             pdf.cell(col_width, 8, str(hora_label), border=1, align="C")
                             for col in tabla_final.columns:
-                                pdf.cell(col_width, 8, str(int(row[col])), border=1, align="C")
+                                valor = int(row[col]) if not pd.isna(row[col]) else 0
+                                pdf.cell(col_width, 8, str(valor), border=1, align="C")
                             pdf.ln()
 
                         pdf_path = os.path.join(tmpdir, f"dashboard_{empresa}.pdf")
@@ -320,7 +354,8 @@ if uploaded_file:
                             label=f"Descargar PDF para {empresa}",
                             data=pdf_bytes,
                             file_name=f"dashboard_{empresa}.pdf",
-                            mime="application/pdf"
+                            mime="application/pdf",
+                            key=f"download_pdf_{empresa}"
                         )
 
                 except Exception as e:
