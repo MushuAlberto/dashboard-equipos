@@ -62,7 +62,8 @@ LOGOS = {
     "M&Q SPA": str(CURRENT_DIR / "mq.png"),
     "M S & D SPA": str(CURRENT_DIR / "msd.png"),
     "JORQUERA TRANSPORTE S. A.": str(CURRENT_DIR / "jorquera.png"),
-    "AG SERVICES SPA": str(CURRENT_DIR / "ag.png")
+    "AG SERVICES SPA": str(CURRENT_DIR / "ag.png"),
+    "AG SERVICES": str(CURRENT_DIR / "ag.png")
 }
 BANNER_PATH = str(CURRENT_DIR / "image.png")
 
@@ -366,3 +367,4 @@ if uploaded_file:
 
 else:
     st.info("Carga un archivo Excel para ver el dashboard.")
+
