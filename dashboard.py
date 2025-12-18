@@ -57,6 +57,7 @@ def normalizar_nombre_empresa(nombre):
 def clean_text(text):
     """Limpia texto para evitar errores de encoding en FPDF"""
     try:
+        # FPDF solo acepta latin-1. Reemplazamos caracteres no compatibles.
         return str(text).encode('latin-1', 'replace').decode('latin-1')
     except:
         return str(text)
@@ -71,7 +72,7 @@ if uploaded_file:
     try:
         df = pd.read_excel(uploaded_file)
         
-        # Identificar columnas por posición
+        # Identificar columnas por posición (A, D, L, O)
         fecha_col = df.columns[0]
         destino_col = df.columns[3]
         empresa_col = df.columns[11]
@@ -83,7 +84,7 @@ if uploaded_file:
         df[hora_col] = pd.to_datetime(df[hora_col], format='%H:%M:%S', errors='coerce').dt.hour
         df[empresa_col] = df[empresa_col].apply(normalizar_nombre_empresa)
 
-        # Filtros principales
+        # Filtros
         fechas = sorted(df[fecha_col].dropna().dt.date.unique())
         fecha_sel = st.date_input("Selecciona Fecha:", value=fechas[0] if fechas else None)
         
@@ -97,9 +98,8 @@ if uploaded_file:
 
         horas_labels = [f"{str(h).zfill(2)}:00 - {str(h).zfill(2)}:59" for h in range(24)]
 
-        # BUCLE POR CADA EMPRESA
+        # BUCLE PRINCIPAL
         for empresa in empresas_sel:
-            # Filtrar datos de la empresa actual
             df_empresa = df_filtered[(df_filtered[empresa_col] == empresa) & (df_filtered[destino_col].isin(destinos_sel))]
             
             if df_empresa.empty:
@@ -110,50 +110,45 @@ if uploaded_file:
             
             col1, col2 = st.columns([3, 2])
             
-            # 1. Gráfico
+            # 1. Gráfico Plotly
             resumen = df_empresa.groupby([hora_col, destino_col]).size().reset_index(name='Cantidad')
             fig = px.line(resumen, x=hora_col, y="Cantidad", color=destino_col, markers=True, 
-                         title=f"Equipos por Hora - {empresa}",
-                         labels={hora_col: "HR ENTRADA", "Cantidad": "Cantidad"})
+                         title=f"Equipos por Hora - {empresa}")
             fig.update_layout(xaxis=dict(dtick=1, range=[0, 23]))
             col1.plotly_chart(fig, use_container_width=True)
 
-            # 2. Tabla
+            # 2. Tabla de Datos
             df_empresa['Hora Intervalo'] = df_empresa[hora_col].apply(lambda h: f"{str(int(h)).zfill(2)}:00 - {str(int(h)).zfill(2)}:59")
             tabla = pd.pivot_table(df_empresa, index='Hora Intervalo', columns=destino_col, values=empresa_col, aggfunc='count', fill_value=0)
             tabla = tabla.reindex(horas_labels, fill_value=0)
             
-            # Sumatoria TOTAL
             sumatoria = pd.DataFrame(tabla.sum(axis=0)).T
             sumatoria.index = ['TOTAL']
             tabla_final = pd.concat([tabla, sumatoria])
-            col2.write("Resumen Numérico")
             col2.dataframe(tabla_final, use_container_width=True)
 
-            # 3. Preparación de PDF (dentro de un try para que si falla una empresa no rompa el resto)
+            # 3. Generación Segura de PDF
             try:
                 with tempfile.TemporaryDirectory() as tmpdir:
-                    # Guardar gráfico como imagen
+                    # Guardar gráfico como imagen temporal
                     img_path = os.path.join(tmpdir, "chart.png")
                     fig.write_image(img_path, scale=2)
 
-                    # Crear PDF
+                    # Crear PDF en memoria
                     pdf = FPDF(orientation='L', unit='mm', format='A4')
                     pdf.add_page()
                     pdf.set_font("Arial", "B", 16)
                     pdf.cell(0, 10, clean_text(f"Reporte: {empresa} | Fecha: {fecha_sel}"), ln=1, align="C")
-                    
-                    # Insertar gráfico
                     pdf.image(img_path, x=15, y=30, w=260)
 
-                    # Nueva página para la tabla
+                    # Página 2: Tabla
                     pdf.add_page(orientation='P')
                     pdf.set_font("Arial", "B", 12)
-                    pdf.cell(0, 10, "Detalle de Cantidades por Destino", ln=1, align="C")
+                    pdf.cell(0, 10, "Detalle de Cantidades", ln=1, align="C")
                     pdf.ln(5)
                     pdf.set_font("Arial", "", 8)
 
-                    # Dibujar tabla en PDF
+                    # Dibujar Tabla
                     ancho_col = 190 / (len(tabla_final.columns) + 1)
                     pdf.cell(ancho_col, 8, "Hora", 1, 0, "C")
                     for c in tabla_final.columns:
@@ -166,22 +161,27 @@ if uploaded_file:
                             pdf.cell(ancho_col, 7, str(int(val)), 1, 0, "C")
                         pdf.ln()
 
-                    # Generar salida de bytes de forma segura
-                    pdf_bytes = pdf.output(dest='S')
-                    if isinstance(pdf_bytes, str): # Por si devuelve string en versiones viejas
-                        pdf_bytes = pdf_bytes.encode('latin-1')
+                    # --- CORRECCIÓN CLAVE ---
+                    # Obtenemos el output. Si ya son bytes/bytearray, no encodear.
+                    pdf_output = pdf.output(dest='S')
+                    
+                    # Convertir a bytes si es necesario (para compatibilidad)
+                    if isinstance(pdf_output, str):
+                        pdf_output = pdf_output.encode('latin-1')
+                    elif isinstance(pdf_output, bytearray):
+                        pdf_output = bytes(pdf_output)
 
                     st.download_button(
                         label=f"📥 Descargar PDF {empresa}",
-                        data=pdf_bytes,
+                        data=pdf_output,
                         file_name=f"Reporte_{empresa.replace(' ', '_')}.pdf",
                         mime="application/pdf",
                         key=f"btn_{empresa.replace('&', 'AND').replace(' ', '_')}"
                     )
             except Exception as pdf_err:
-                st.warning(f"No se pudo generar el PDF para {empresa}: {pdf_err}")
+                st.error(f"Error al generar PDF para {empresa}: {pdf_err}")
 
     except Exception as e:
-        st.error(f"Error general en el proceso: {e}")
+        st.error(f"Error general: {e}")
 else:
-    st.info("Carga un archivo Excel para comenzar.")
+    st.info("Carga un archivo Excel para visualizar los datos.")
