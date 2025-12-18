@@ -1,7 +1,7 @@
 streamlit
 pandas
 plotly
-Pillow
-fpdf2
-openpyxl
 kaleido
+fpdf
+Pillow
+openpyxl
