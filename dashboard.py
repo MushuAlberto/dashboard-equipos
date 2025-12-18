@@ -22,7 +22,6 @@ LOGOS = {
     "AG SERVICES SPA": str(CURRENT_DIR / "ag.png"),
 }
 
-# --- FUNCIONES DE APOYO ---
 def normalizar_nombre_empresa(nombre):
     nombre = str(nombre).strip().upper()
     nombre = nombre.replace('.', '').replace('&', 'AND')
@@ -56,8 +55,11 @@ def normalizar_nombre_empresa(nombre):
     return equivalencias.get(nombre, nombre)
 
 def clean_text(text):
-    """Limpia texto para evitar errores de encoding en FPDF (latin-1)"""
-    return str(text).encode('latin-1', 'replace').decode('latin-1')
+    """Limpia texto para evitar errores de encoding en FPDF"""
+    try:
+        return str(text).encode('latin-1', 'replace').decode('latin-1')
+    except:
+        return str(text)
 
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(page_title="Dashboard Equipos", layout="wide")
@@ -68,129 +70,118 @@ uploaded_file = st.file_uploader("Carga tu archivo Excel", type=["xlsx"])
 if uploaded_file:
     try:
         df = pd.read_excel(uploaded_file)
-        required_columns = {'fecha_col': 0, 'destino_col': 3, 'empresa_col': 11, 'hora_col': 14}
         
-        if len(df.columns) < 15:
-            st.error("El archivo no tiene suficientes columnas.")
-            st.stop()
-
-        fecha_col, destino_col, empresa_col, hora_col = [df.columns[i] for i in [0, 3, 11, 14]]
+        # Identificar columnas por posición
+        fecha_col = df.columns[0]
+        destino_col = df.columns[3]
+        empresa_col = df.columns[11]
+        hora_col = df.columns[14]
+        
         df = df.dropna(subset=[fecha_col, destino_col, empresa_col, hora_col])
         
         df[fecha_col] = pd.to_datetime(df[fecha_col], errors='coerce', dayfirst=True)
         df[hora_col] = pd.to_datetime(df[hora_col], format='%H:%M:%S', errors='coerce').dt.hour
         df[empresa_col] = df[empresa_col].apply(normalizar_nombre_empresa)
 
-        # Filtros
-        fechas = df[fecha_col].dropna().dt.date.unique()
-        fecha_sel = st.date_input("Fecha:", value=min(fechas))
+        # Filtros principales
+        fechas = sorted(df[fecha_col].dropna().dt.date.unique())
+        fecha_sel = st.date_input("Selecciona Fecha:", value=fechas[0] if fechas else None)
+        
         df_filtered = df[df[fecha_col].dt.date == fecha_sel]
         
         empresas = sorted(df_filtered[empresa_col].unique())
-        empresas_sel = st.multiselect("Empresas:", empresas, default=empresas)
+        empresas_sel = st.multiselect("Filtrar Empresas:", empresas, default=empresas)
         
         destinos = sorted(df_filtered[destino_col].unique())
-        destinos_sel = st.multiselect("Destinos:", destinos, default=destinos)
+        destinos_sel = st.multiselect("Filtrar Destinos:", destinos, default=destinos)
 
-        # Labels de horas fijos
         horas_labels = [f"{str(h).zfill(2)}:00 - {str(h).zfill(2)}:59" for h in range(24)]
 
+        # BUCLE POR CADA EMPRESA
         for empresa in empresas_sel:
+            # Filtrar datos de la empresa actual
             df_empresa = df_filtered[(df_filtered[empresa_col] == empresa) & (df_filtered[destino_col].isin(destinos_sel))]
-            st.markdown(f"## Empresa: {empresa}")
             
             if df_empresa.empty:
-                st.info(f"Sin datos para {empresa}")
                 continue
 
-            col1, col2 = st.columns(2)
+            st.markdown(f"---")
+            st.header(f"Empresa: {empresa}")
             
-            # Gráfico Plotly
+            col1, col2 = st.columns([3, 2])
+            
+            # 1. Gráfico
             resumen = df_empresa.groupby([hora_col, destino_col]).size().reset_index(name='Cantidad')
-            fig = px.line(resumen, x=hora_col, y="Cantidad", color=destino_col, markers=True, title=f"Equipos por Hora - {empresa}")
-            fig.update_layout(xaxis=dict(dtick=1))
+            fig = px.line(resumen, x=hora_col, y="Cantidad", color=destino_col, markers=True, 
+                         title=f"Equipos por Hora - {empresa}",
+                         labels={hora_col: "HR ENTRADA", "Cantidad": "Cantidad"})
+            fig.update_layout(xaxis=dict(dtick=1, range=[0, 23]))
             col1.plotly_chart(fig, use_container_width=True)
 
-            # Tabla resumen
+            # 2. Tabla
             df_empresa['Hora Intervalo'] = df_empresa[hora_col].apply(lambda h: f"{str(int(h)).zfill(2)}:00 - {str(int(h)).zfill(2)}:59")
             tabla = pd.pivot_table(df_empresa, index='Hora Intervalo', columns=destino_col, values=empresa_col, aggfunc='count', fill_value=0)
             tabla = tabla.reindex(horas_labels, fill_value=0)
-            tabla_final = pd.concat([tabla, pd.DataFrame(tabla.sum(axis=0), columns=['TOTAL']).T])
-            col2.dataframe(tabla_final)
+            
+            # Sumatoria TOTAL
+            sumatoria = pd.DataFrame(tabla.sum(axis=0)).T
+            sumatoria.index = ['TOTAL']
+            tabla_final = pd.concat([tabla, sumatoria])
+            col2.write("Resumen Numérico")
+            col2.dataframe(tabla_final, use_container_width=True)
 
-            # --- GENERACIÓN DE PDF ---
-            with tempfile.TemporaryDirectory() as tmpdir:
-                # 1. Imagen del gráfico
-                img_path = os.path.join(tmpdir, "chart.png")
-                fig.write_image(img_path, scale=2)
+            # 3. Preparación de PDF (dentro de un try para que si falla una empresa no rompa el resto)
+            try:
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    # Guardar gráfico como imagen
+                    img_path = os.path.join(tmpdir, "chart.png")
+                    fig.write_image(img_path, scale=2)
 
-                # 2. Combinar Imágenes (Banner + Logo + Gráfico)
-                imgs = []
-                if os.path.exists(BANNER_PATH): imgs.append(Image.open(BANNER_PATH).convert("RGB"))
-                
-                logo_p = LOGOS.get(empresa)
-                if logo_p and os.path.exists(logo_p):
-                    l_img = Image.open(logo_p).convert("RGBA")
-                    # Redimensionar logo a ancho 150px
-                    l_w = 150
-                    l_h = int(l_img.size[1] * (l_w / l_img.size[0]))
-                    l_res = l_img.resize((l_w, l_h), Image.LANCZOS)
-                    # Fondo blanco para el logo
-                    bg = Image.new("RGB", (800, l_h), (255, 255, 255))
-                    bg.paste(l_res, ((800 - l_w)//2, 0), l_res)
-                    imgs.append(bg)
-                
-                imgs.append(Image.open(img_path).convert("RGB"))
+                    # Crear PDF
+                    pdf = FPDF(orientation='L', unit='mm', format='A4')
+                    pdf.add_page()
+                    pdf.set_font("Arial", "B", 16)
+                    pdf.cell(0, 10, clean_text(f"Reporte: {empresa} | Fecha: {fecha_sel}"), ln=1, align="C")
+                    
+                    # Insertar gráfico
+                    pdf.image(img_path, x=15, y=30, w=260)
 
-                # Stack vertical
-                w = max(i.width for i in imgs)
-                h_total = sum(i.height for i in imgs)
-                combined = Image.new("RGB", (w, h_total), (255, 255, 255))
-                curr_h = 0
-                for i in imgs:
-                    combined.paste(i, (0, curr_h))
-                    curr_h += i.height
-                
-                combined_path = os.path.join(tmpdir, "final.png")
-                combined.save(combined_path)
+                    # Nueva página para la tabla
+                    pdf.add_page(orientation='P')
+                    pdf.set_font("Arial", "B", 12)
+                    pdf.cell(0, 10, "Detalle de Cantidades por Destino", ln=1, align="C")
+                    pdf.ln(5)
+                    pdf.set_font("Arial", "", 8)
 
-                # 3. PDF
-                pdf = FPDF(orientation='L', unit='mm', format='A4')
-                pdf.add_page()
-                pdf.set_font("Arial", "B", 16)
-                pdf.cell(0, 10, clean_text(f"Empresa: {empresa} - Fecha: {fecha_sel}"), ln=1, align="C")
-                pdf.image(combined_path, x=10, y=25, w=275)
-
-                # Tabla en pag 2
-                pdf.add_page(orientation='P')
-                pdf.set_font("Arial", "B", 12)
-                pdf.cell(0, 10, "Resumen de Cantidades", ln=1, align="C")
-                pdf.set_font("Arial", "", 7)
-                
-                # Encabezados de tabla
-                c_w = 190 / (len(tabla_final.columns) + 1)
-                pdf.cell(c_w, 8, "Hora", 1, 0, "C")
-                for c in tabla_final.columns: pdf.cell(c_w, 8, clean_text(c[:15]), 1, 0, "C")
-                pdf.ln()
-                
-                # Filas de tabla
-                for idx, row in tabla_final.iterrows():
-                    pdf.cell(c_w, 6, clean_text(idx), 1, 0, "C")
-                    for val in row: pdf.cell(c_w, 6, str(int(val)), 1, 0, "C")
+                    # Dibujar tabla en PDF
+                    ancho_col = 190 / (len(tabla_final.columns) + 1)
+                    pdf.cell(ancho_col, 8, "Hora", 1, 0, "C")
+                    for c in tabla_final.columns:
+                        pdf.cell(ancho_col, 8, clean_text(str(c)[:15]), 1, 0, "C")
                     pdf.ln()
 
-                pdf_output = pdf.output(dest='S').encode('latin-1')
-                
-                # BOTÓN ÚNICO
-                st.download_button(
-                    label=f"📥 Descargar Reporte {empresa}",
-                    data=pdf_output,
-                    file_name=f"Reporte_{empresa.replace(' ', '_')}.pdf",
-                    mime="application/pdf",
-                    key=f"dl_btn_{empresa.replace('&', 'AND').replace(' ', '_')}"
-                )
+                    for idx, row in tabla_final.iterrows():
+                        pdf.cell(ancho_col, 7, clean_text(idx), 1, 0, "C")
+                        for val in row:
+                            pdf.cell(ancho_col, 7, str(int(val)), 1, 0, "C")
+                        pdf.ln()
+
+                    # Generar salida de bytes de forma segura
+                    pdf_bytes = pdf.output(dest='S')
+                    if isinstance(pdf_bytes, str): # Por si devuelve string en versiones viejas
+                        pdf_bytes = pdf_bytes.encode('latin-1')
+
+                    st.download_button(
+                        label=f"📥 Descargar PDF {empresa}",
+                        data=pdf_bytes,
+                        file_name=f"Reporte_{empresa.replace(' ', '_')}.pdf",
+                        mime="application/pdf",
+                        key=f"btn_{empresa.replace('&', 'AND').replace(' ', '_')}"
+                    )
+            except Exception as pdf_err:
+                st.warning(f"No se pudo generar el PDF para {empresa}: {pdf_err}")
 
     except Exception as e:
-        st.error(f"Error general: {e}")
+        st.error(f"Error general en el proceso: {e}")
 else:
-    st.info("Por favor, carga un archivo Excel.")
+    st.info("Carga un archivo Excel para comenzar.")
