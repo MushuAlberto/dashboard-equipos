@@ -7,6 +7,7 @@ from fpdf import FPDF
 import tempfile
 import os
 from pathlib import Path
+from io import BytesIO
 
 # --- CONFIGURACIÓN Y CONSTANTES ---
 pio.templates.default = "plotly"
@@ -43,7 +44,6 @@ def normalizar_nombre_empresa(nombre):
         "M AND Q": "M&Q SPA",
         "M Q SPA": "M&Q SPA",
         "MQ SPA": "M&Q SPA",
-        "M&Q SPA": "M&Q SPA",
         "MANDQ SPA": "M&Q SPA",
         "MANDQ": "M&Q SPA",
         "MINING AND QUARRYING SPA": "M&Q SPA",
@@ -55,9 +55,8 @@ def normalizar_nombre_empresa(nombre):
     return equivalencias.get(nombre, nombre)
 
 def clean_text(text):
-    """Limpia texto para evitar errores de encoding en FPDF"""
     try:
-        return str(text).encode('latin-1', 'replace').decode('latin-1')
+        return str(text).encode("latin-1", "replace").decode("latin-1")
     except:
         return str(text)
 
@@ -70,22 +69,20 @@ uploaded_file = st.file_uploader("Carga tu archivo Excel", type=["xlsx"])
 if uploaded_file:
     try:
         df = pd.read_excel(uploaded_file)
-        
-        # Identificar columnas por posición
+
         fecha_col = df.columns[0]
         destino_col = df.columns[3]
         empresa_col = df.columns[11]
         hora_col = df.columns[14]
-        
+
         df = df.dropna(subset=[fecha_col, destino_col, empresa_col, hora_col])
-        df[fecha_col] = pd.to_datetime(df[fecha_col], errors='coerce', dayfirst=True)
-        df[hora_col] = pd.to_datetime(df[hora_col], format='%H:%M:%S', errors='coerce').dt.hour
+        df[fecha_col] = pd.to_datetime(df[fecha_col], errors="coerce", dayfirst=True)
+        df[hora_col] = pd.to_datetime(df[hora_col], format="%H:%M:%S", errors="coerce").dt.hour
         df[empresa_col] = df[empresa_col].apply(normalizar_nombre_empresa)
 
-        # Filtros
         fechas = sorted(df[fecha_col].dropna().dt.date.unique())
-        fecha_sel = st.date_input("Selecciona Fecha:", value=fechas[0] if fechas else None)
-        
+        fecha_sel = st.date_input("Selecciona Fecha:", value=fechas[0])
+
         df_filtered = df[df[fecha_col].dt.date == fecha_sel]
         empresas = sorted(df_filtered[empresa_col].unique())
         empresas_sel = st.multiselect("Empresas:", empresas, default=empresas)
@@ -95,77 +92,91 @@ if uploaded_file:
         horas_labels = [f"{str(h).zfill(2)}:00 - {str(h).zfill(2)}:59" for h in range(24)]
 
         for empresa in empresas_sel:
-            df_empresa = df_filtered[(df_filtered[empresa_col] == empresa) & (df_filtered[destino_col].isin(destinos_sel))]
-            if df_empresa.empty: continue
+            df_empresa = df_filtered[
+                (df_filtered[empresa_col] == empresa) &
+                (df_filtered[destino_col].isin(destinos_sel))
+            ]
+            if df_empresa.empty:
+                continue
 
-            st.markdown(f"---")
+            st.markdown("---")
             st.header(f"Empresa: {empresa}")
-            
+
             c1, c2 = st.columns([3, 2])
-            
-            # Gráfico
-            resumen = df_empresa.groupby([hora_col, destino_col]).size().reset_index(name='Cantidad')
-            fig = px.line(resumen, x=hora_col, y="Cantidad", color=destino_col, markers=True, title=f"Equipos - {empresa}")
+
+            resumen = df_empresa.groupby([hora_col, destino_col]).size().reset_index(name="Cantidad")
+            fig = px.line(
+                resumen,
+                x=hora_col,
+                y="Cantidad",
+                color=destino_col,
+                markers=True,
+                title=f"Equipos - {empresa}"
+            )
             fig.update_layout(xaxis=dict(dtick=1, range=[0, 23]))
             c1.plotly_chart(fig, use_container_width=True)
 
-            # Tabla
-            df_empresa['Hora Intervalo'] = df_empresa[hora_col].apply(lambda h: f"{str(int(h)).zfill(2)}:00 - {str(int(h)).zfill(2)}:59")
-            tabla = pd.pivot_table(df_empresa, index='Hora Intervalo', columns=destino_col, values=empresa_col, aggfunc='count', fill_value=0)
+            df_empresa["Hora Intervalo"] = df_empresa[hora_col].apply(
+                lambda h: f"{str(int(h)).zfill(2)}:00 - {str(int(h)).zfill(2)}:59"
+            )
+            tabla = pd.pivot_table(
+                df_empresa,
+                index="Hora Intervalo",
+                columns=destino_col,
+                values=empresa_col,
+                aggfunc="count",
+                fill_value=0
+            )
             tabla = tabla.reindex(horas_labels, fill_value=0)
-            tabla_final = pd.concat([tabla, pd.DataFrame(tabla.sum(axis=0)).T.rename(index={0: 'TOTAL'})])
+            tabla_final = pd.concat([
+                tabla,
+                pd.DataFrame(tabla.sum(axis=0)).T.rename(index={0: "TOTAL"})
+            ])
             c2.dataframe(tabla_final, use_container_width=True)
 
-            # --- GENERACIÓN DE PDF ---
-            # Guardamos la imagen del gráfico temporalmente para el PDF
             with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp_img:
                 fig.write_image(tmp_img.name, scale=2)
                 img_path = tmp_img.name
 
             try:
-                pdf = FPDF(orientation='L', unit='mm', format='A4')
+                pdf = FPDF(orientation="L", unit="mm", format="A4")
                 pdf.add_page()
                 pdf.set_font("Arial", "B", 16)
                 pdf.cell(0, 10, clean_text(f"Reporte: {empresa} | {fecha_sel}"), ln=1, align="C")
                 pdf.image(img_path, x=15, y=30, w=260)
 
-                # Tabla Pág 2
-                pdf.add_page(orientation='P')
+                pdf.add_page(orientation="P")
                 pdf.set_font("Arial", "B", 12)
                 pdf.cell(0, 10, "Resumen Numérico", ln=1, align="C")
                 pdf.set_font("Arial", "", 8)
 
                 col_w = 190 / (len(tabla_final.columns) + 1)
                 pdf.cell(col_w, 8, "Hora", 1, 0, "C")
-                for c in tabla_final.columns: pdf.cell(col_w, 8, clean_text(str(c)[:12]), 1, 0, "C")
+                for c in tabla_final.columns:
+                    pdf.cell(col_w, 8, clean_text(str(c)[:12]), 1, 0, "C")
                 pdf.ln()
 
                 for idx, row in tabla_final.iterrows():
                     pdf.cell(col_w, 7, clean_text(idx), 1, 0, "C")
-                    for val in row: pdf.cell(col_w, 7, str(int(val)), 1, 0, "C")
+                    for val in row:
+                        pdf.cell(col_w, 7, str(int(val)), 1, 0, "C")
                     pdf.ln()
 
-                # Obtener bytes del PDF de forma compatible
-                pdf_output = pdf.output(dest='S')
-                if isinstance(pdf_output, bytearray):
-                    pdf_output = bytes(pdf_output)
-                elif isinstance(pdf_output, str):
-                    pdf_output = pdf_output.encode('latin-1')
+                pdf_buffer = BytesIO()
+                pdf.output(pdf_buffer)
+                pdf_buffer.seek(0)
 
-                # El botón de descarga debe estar fuera de cualquier condición temporal
                 st.download_button(
                     label=f"📥 Descargar PDF {empresa}",
-                    data=pdf_output,
+                    data=pdf_buffer,
                     file_name=f"Reporte_{empresa.replace(' ', '_')}.pdf",
                     mime="application/pdf",
                     key=f"dl_{empresa.replace('&', 'AND').replace(' ', '_')}"
                 )
 
-            except Exception as e:
-                st.error(f"Error en PDF de {empresa}: {e}")
             finally:
                 if os.path.exists(img_path):
-                    os.remove(img_path) # Limpieza manual segura
+                    os.remove(img_path)
 
     except Exception as e:
         st.error(f"Error general: {e}")
