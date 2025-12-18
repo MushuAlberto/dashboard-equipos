@@ -3,5 +3,5 @@ pandas
 openpyxl
 plotly
 kaleido==0.2.1
-fpdf
+fpdf2
 Pillow
