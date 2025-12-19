@@ -48,6 +48,8 @@ def normalizar_nombre_empresa(nombre):
         "AG SERVICE SPA": "AG SERVICES SPA",
         "AG SERVICES SPA": "AG SERVICES SPA",
         "AG SERVICES": "AG SERVICES SPA",
+        # AGRETOC
+        "AGRETOC": "AGRETOC",
         # COSEDUCAM S A
         "COSEDUCAM S A": "COSEDUCAM S A",
         "COSEDUCAM": "COSEDUCAM S A"
@@ -63,6 +65,7 @@ LOGOS = {
     "COSEDUCAM S A": str(CURRENT_DIR / "coseducam.png"),
     "M&Q SPA": str(CURRENT_DIR / "mq.png"),
     "M S & D SPA": str(CURRENT_DIR / "msd.png"),
+    "AGRETOC": str(CURRENT_DIR / "agretoc.png"),
     "JORQUERA TRANSPORTE S. A.": str(CURRENT_DIR / "jorquera.png"),
     "AG SERVICES SPA": str(CURRENT_DIR / "ag.png")
 }
@@ -536,4 +539,5 @@ if uploaded_file:
 
 else:
     st.info("Carga un archivo Excel para ver el dashboard.")
+
 
