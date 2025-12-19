@@ -358,7 +358,7 @@ if uploaded_file:
                                 if logo_path and os.path.exists(logo_path):
                                     logo_img = Image.open(logo_path)
                                     # Redimensionar el logo
-                                    logo_width = 150 # Un poco más grande quizás? Ajusta si es necesario
+                                    logo_width = 80 # Un poco más grande quizás? Ajusta si es necesario
                                     wpercent = (logo_width / float(logo_img.size[0]))
                                     hsize = int((float(logo_img.size[1]) * float(wpercent)))
                                     logo_img = logo_img.resize((logo_width, hsize), Image.Resampling.LANCZOS) # Usar Resampling.LANCZOS
@@ -540,6 +540,7 @@ if uploaded_file:
 
 else:
     st.info("Carga un archivo Excel para ver el dashboard.")
+
 
 
 
