@@ -23,6 +23,7 @@ def normalizar_nombre_empresa(nombre):
     equivalencias = {
         # JORQUERA TRANSPORTE S. A.
         "JORQUERA TRANSPORTE S A": "JORQUERA TRANSPORTE S. A.",
+        "JORQUERA TRANSPORTE SA": "JORQUERA TRANSPORTE S. A.",
         # M S & D SPA y variantes
         "MINING SERVICES AND DERIVATES": "M S & D SPA",
         "MINING SERVICES AND DERIVATES SPA": "M S & D SPA",
@@ -539,5 +540,6 @@ if uploaded_file:
 
 else:
     st.info("Carga un archivo Excel para ver el dashboard.")
+
 
 
