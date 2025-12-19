@@ -38,6 +38,7 @@ def normalizar_nombre_empresa(nombre):
         "M AND Q SPA": "M&Q SPA",
         "M AND Q": "M&Q SPA",
         "M Q SPA": "M&Q SPA",
+        "M & Q": "M&Q SPA",
         "MQ SPA": "M&Q SPA",
         "M&Q SPA": "M&Q SPA",
         "MANDQ SPA": "M&Q SPA",
@@ -46,6 +47,7 @@ def normalizar_nombre_empresa(nombre):
         # AG SERVICES SPA
         "AG SERVICE SPA": "AG SERVICES SPA",
         "AG SERVICES SPA": "AG SERVICES SPA",
+        "AG SERVICES": "AG SERVICES SPA",
         # COSEDUCAM S A
         "COSEDUCAM S A": "COSEDUCAM S A",
         "COSEDUCAM": "COSEDUCAM S A"
@@ -534,3 +536,4 @@ if uploaded_file:
 
 else:
     st.info("Carga un archivo Excel para ver el dashboard.")
+
