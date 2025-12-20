@@ -11,15 +11,13 @@ from pathlib import Path
 # Forzar tema de color en Plotly
 pio.templates.default = "plotly"
 
-# Paleta de colores para destinos
-COLOR_PALETTE = px.colors.qualitative.Plotly
+# --- FUNCIONES DE NORMALIZACIÓN ---
 
-# Función de normalización robusta de nombres de empresa
 def normalizar_nombre_empresa(nombre):
     """Normaliza nombres de empresa para estandarizar variantes."""
     nombre = str(nombre).strip().upper()
     nombre = nombre.replace('.', '').replace('&', 'AND')
-    nombre = ' '.join(nombre.split())  # Normaliza espacios múltiples
+    nombre = ' '.join(nombre.split())
     equivalencias = {
         "JORQUERA TRANSPORTE S A": "JORQUERA TRANSPORTE S. A.",
         "JORQUERA TRANSPORTE SA": "JORQUERA TRANSPORTE S. A.",
@@ -49,10 +47,17 @@ def normalizar_nombre_empresa(nombre):
     }
     return equivalencias.get(nombre, nombre)
 
-# Configuración de la página
+def normalizar_destino(destino):
+    """Estandariza variantes de destinos, específicamente Baquedano."""
+    destino = str(destino).strip().upper()
+    # Unifica BAQUEDANO/CLB y otras variantes bajo un solo nombre
+    if destino in ["BAQUEDANO/CLB", "BAQUEDANO CLB", "BAQ"]:
+        return "BAQUEDANO"
+    return destino
+
+# --- CONFIGURACIÓN DE LA PÁGINA ---
 st.set_page_config(page_title="Dashboard Equipos por Hora", layout="wide")
 
-# Definir rutas de archivos relativas al script
 CURRENT_DIR = Path(__file__).parent
 LOGOS = {
     "COSEDUCAM S A": str(CURRENT_DIR / "coseducam.png"),
@@ -83,22 +88,33 @@ if uploaded_file:
         empresa_col_name = df.columns[required_columns_idx['empresa_col']]
         hora_col_name = df.columns[required_columns_idx['hora_col']]
 
+        # Limpieza inicial
         df = df.dropna(subset=[fecha_col_name, destino_col_name, empresa_col_name, hora_col_name])
 
+        # Procesamiento de Fechas y Horas
         try:
             df[fecha_col_name] = pd.to_datetime(df[fecha_col_name], errors='coerce', dayfirst=True)
-            df[hora_col_name] = pd.to_datetime(df[hora_col_name], format='%H:%M:%S', errors='coerce').dt.hour
+            # Aseguramos que la hora sea extraída correctamente
+            df[hora_col_name] = pd.to_datetime(df[hora_col_name].astype(str), errors='coerce').dt.hour
         except Exception as e:
             st.error(f"Error al procesar fechas u horas: {str(e)}")
             st.stop()
 
         df = df.dropna(subset=[fecha_col_name, hora_col_name])
+        
+        # APLICACIÓN DE NORMALIZACIÓN (Empresa y Destino)
         df[empresa_col_name] = df[empresa_col_name].apply(normalizar_nombre_empresa)
+        df[destino_col_name] = df[destino_col_name].apply(normalizar_destino)
 
-        fechas_disponibles = df[fecha_col_name].dt.date.unique()
-        fecha_sel = st.date_input("Selecciona la fecha:", min_value=min(fechas_disponibles), max_value=max(fechas_disponibles), value=min(fechas_disponibles))
+        # Filtros de Interfaz
+        fechas_disponibles = sorted(df[fecha_col_name].dt.date.unique())
+        fecha_sel = st.date_input("Selecciona la fecha:", 
+                                  min_value=min(fechas_disponibles), 
+                                  max_value=max(fechas_disponibles), 
+                                  value=min(fechas_disponibles))
 
         df_filtrado = df[df[fecha_col_name].dt.date == fecha_sel].copy()
+        
         destinos_disponibles = sorted(df_filtrado[destino_col_name].dropna().unique())
         empresas_disponibles = sorted(df_filtrado[empresa_col_name].dropna().unique())
 
@@ -107,13 +123,16 @@ if uploaded_file:
 
         df_filtrado = df_filtrado[df_filtrado[destino_col_name].isin(destinos_sel) & df_filtrado[empresa_col_name].isin(empresas_sel)]
 
-        horas_disponibles_filtradas = df_filtrado[hora_col_name].dropna().unique()
-        if len(horas_disponibles_filtradas) > 0:
-            hora_rango = st.slider("Selecciona el rango de horas:", 0, 23, (int(min(horas_disponibles_filtradas)), int(max(horas_disponibles_filtradas))), format="%d:00")
+        if not df_filtrado.empty:
+            horas_disponibles_filtradas = df_filtrado[hora_col_name].dropna().unique()
+            hora_rango = st.slider("Selecciona el rango de horas:", 0, 23, 
+                                   (int(min(horas_disponibles_filtradas)), int(max(horas_disponibles_filtradas))), 
+                                   format="%d:00")
             df_filtrado = df_filtrado[(df_filtrado[hora_col_name] >= hora_rango[0]) & (df_filtrado[hora_col_name] <= hora_rango[1])]
 
         df_filtrado['Hora Intervalo'] = df_filtrado[hora_col_name].apply(lambda h: f"{str(int(h)).zfill(2)}:00 - {str(int(h)).zfill(2)}:59")
 
+        # Visualización por Empresa
         for empresa in empresas_sel:
             empresa_normalizada = normalizar_nombre_empresa(empresa)
             df_empresa = df_filtrado[df_filtrado[empresa_col_name] == empresa_normalizada].copy()
@@ -128,31 +147,36 @@ if uploaded_file:
 
                 resumen_grafico = df_empresa.groupby([hora_col_name, destino_col_name]).size().reset_index(name='Cantidad')
                 if not resumen_grafico.empty:
-                    fig = px.line(resumen_grafico, x=hora_col_name, y="Cantidad", color=destino_col_name, markers=True, title=f"Equipos por hora - {empresa}")
+                    fig = px.line(resumen_grafico, x=hora_col_name, y="Cantidad", color=destino_col_name, 
+                                  markers=True, title=f"Equipos por hora - {empresa}")
                     st.plotly_chart(fig, use_container_width=True)
 
             with col2:
                 if not df_empresa.empty:
-                    tabla = pd.pivot_table(df_empresa, index='Hora Intervalo', columns=destino_col_name, values=empresa_col_name, aggfunc='count', fill_value=0)
-                    horas_labels = [f"{str(h).zfill(2)}:00 - {str(h).zfill(2)}:59" for h in range(24)]
+                    tabla = pd.pivot_table(df_empresa, index='Hora Intervalo', columns=destino_col_name, 
+                                           values=empresa_col_name, aggfunc='count', fill_value=0)
+                    
+                    # Reindexar para mostrar todas las horas del rango seleccionado
+                    horas_labels = [f"{str(h).zfill(2)}:00 - {str(h).zfill(2)}:59" for h in range(hora_rango[0], hora_rango[1] + 1)]
                     tabla = tabla.reindex(horas_labels, fill_value=0)
+                    
                     sumatoria = pd.DataFrame(tabla.sum(axis=0)).T
                     sumatoria.index = ['TOTAL']
                     tabla_final = pd.concat([tabla, sumatoria])
                     st.dataframe(tabla_final.style.format(precision=0))
 
+            # --- GENERACIÓN DE PDF ---
             if st.button(f"Generar PDF para {empresa}", key=f"btn_{empresa_normalizada}"):
-                with st.spinner("Generando..."):
+                with st.spinner("Generando Reporte PDF..."):
                     try:
                         with tempfile.TemporaryDirectory() as tmpdir:
-                            # 1. Generar Imagen del Gráfico
+                            # 1. Gráfico a Imagen
                             grafico_path = os.path.join(tmpdir, "graf.png")
                             fig.update_layout(width=900, height=400)
                             fig.write_image(grafico_path, scale=2)
 
-                            # 2. Procesar Imágenes (AJUSTE DE LOGO)
+                            # 2. Procesar imágenes para el stack
                             images_to_stack = []
-                            # Base width definido por el gráfico
                             base_width = 1800 
 
                             # Banner
@@ -162,18 +186,15 @@ if uploaded_file:
                                 b_img = b_img.resize((base_width, int(b_img.size[1] * w_perc)), Image.Resampling.LANCZOS)
                                 images_to_stack.append(b_img)
 
-                            # Logo Pequeño (Corrección Solicitada)
+                            # Logo Empresa (con fondo blanco para evitar transparencia negra)
                             if logo_path and os.path.exists(logo_path):
                                 l_img = Image.open(logo_path).convert('RGBA')
-                                # Definir tamaño pequeño para el logo
-                                l_small_w = 200 
+                                l_small_w = 250 
                                 l_perc = l_small_w / float(l_img.size[0])
                                 l_img = l_img.resize((l_small_w, int(l_img.size[1] * l_perc)), Image.Resampling.LANCZOS)
                                 
-                                # Crear un lienzo del ancho base para que el logo NO se estire
-                                l_canvas = Image.new('RGB', (base_width, l_img.height + 40), (255, 255, 255))
-                                # Pegar logo centrado (o a la izquierda si prefieres)
-                                l_canvas.paste(l_img, (40, 20), l_img) 
+                                l_canvas = Image.new('RGB', (base_width, l_img.height + 60), (255, 255, 255))
+                                l_canvas.paste(l_img, (60, 30), mask=l_img) 
                                 images_to_stack.append(l_canvas)
 
                             # Gráfico
@@ -182,7 +203,7 @@ if uploaded_file:
                             g_img = g_img.resize((base_width, int(g_img.size[1] * g_perc)), Image.Resampling.LANCZOS)
                             images_to_stack.append(g_img)
 
-                            # Combinar
+                            # Combinar imágenes
                             total_h = sum(i.height for i in images_to_stack)
                             combined = Image.new('RGB', (base_width, total_h), (255, 255, 255))
                             y_off = 0
@@ -193,38 +214,60 @@ if uploaded_file:
                             combined_path = os.path.join(tmpdir, "comb.png")
                             combined.save(combined_path)
 
-                            # 3. Crear PDF
+                            # 3. Construir PDF con FPDF
                             pdf = FPDF(orientation='L', unit='mm', format='A4')
                             pdf.add_page()
                             pdf.set_font("Arial", "B", 16)
-                            pdf.cell(0, 10, f"Reporte - {empresa}", ln=1, align="C")
-                            pdf.image(combined_path, x=10, y=25, w=277)
+                            pdf.cell(0, 10, f"Reporte de Equipos - {empresa}", ln=1, align="C")
+                            pdf.set_font("Arial", "", 10)
+                            pdf.cell(0, 10, f"Fecha: {fecha_sel}", ln=1, align="C")
                             
-                            # Página 2: Tabla
+                            pdf.image(combined_path, x=10, y=30, w=277)
+                            
+                            # Página 2: Tabla de Datos
                             pdf.add_page(orientation='P')
                             pdf.set_font("Arial", "B", 12)
-                            pdf.cell(0, 10, "Tabla de equipos", ln=1, align="C")
-                            pdf.set_font("Arial", "", 7)
+                            pdf.cell(0, 10, "Detalle por Destino y Horario", ln=1, align="C")
                             
-                            # Dibujar tabla simple
-                            col_w = 190 / (len(tabla_final.columns) + 1)
-                            pdf.cell(col_w, 8, "Hora", 1)
-                            for c in tabla_final.columns: pdf.cell(col_w, 8, str(c), 1)
+                            num_cols = len(tabla_final.columns) + 1
+                            f_size = 8 if num_cols < 7 else 6
+                            pdf.set_font("Arial", "B", f_size)
+                            
+                            col_w = 190 / num_cols
+                            
+                            # Encabezado Tabla
+                            pdf.set_fill_color(240, 240, 240)
+                            pdf.cell(col_w, 8, "Hora", 1, 0, 'C', True)
+                            for c in tabla_final.columns:
+                                pdf.cell(col_w, 8, str(c)[:15], 1, 0, 'C', True)
                             pdf.ln()
+
+                            # Filas Tabla
+                            pdf.set_font("Arial", "", f_size)
                             for idx, row in tabla_final.iterrows():
-                                pdf.cell(col_w, 8, str(idx), 1)
-                                for val in row: pdf.cell(col_w, 8, str(int(val)), 1)
+                                if idx == 'TOTAL': 
+                                    pdf.set_font("Arial", "B", f_size)
+                                    pdf.set_fill_color(245, 245, 245)
+                                else:
+                                    pdf.set_fill_color(255, 255, 255)
+                                
+                                pdf.cell(col_w, 7, str(idx), 1, 0, 'L', True)
+                                for val in row:
+                                    pdf.cell(col_w, 7, str(int(val)), 1, 0, 'C', True)
                                 pdf.ln()
 
-                            pdf_path = os.path.join(tmpdir, "report.pdf")
-                            pdf.output(pdf_path)
-                            with open(pdf_path, "rb") as f:
-                                st.download_button("Descargar PDF", f, file_name=f"{empresa}.pdf")
+                            pdf_output = os.path.join(tmpdir, "report.pdf")
+                            pdf.output(pdf_output)
+                            
+                            with open(pdf_output, "rb") as f:
+                                st.download_button(f"📥 Descargar PDF {empresa}", f, 
+                                                   file_name=f"Reporte_{empresa}_{fecha_sel}.pdf",
+                                                   key=f"dl_{empresa_normalizada}")
 
                     except Exception as e:
-                        st.error(f"Error: {e}")
+                        st.error(f"Error generando el PDF: {e}")
 
     except Exception as e:
         st.error(f"Error al procesar el archivo: {e}")
 else:
-    st.info("Carga un archivo Excel.")
+    st.info("👋 Bienvenido. Por favor, carga un archivo Excel para comenzar el análisis.")
